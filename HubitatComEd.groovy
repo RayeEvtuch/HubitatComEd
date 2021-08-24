@@ -74,12 +74,12 @@ def setState() {
             if (state.currentState.extreme) {
                 state.currentState.extreme = false
                 sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
-                    sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
+                sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
             }
             if (state.currentState.high) {
                 state.currentState.high = false
                 sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
-                    sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
+                sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
             }
             if (price < lowPrice) {
                 if (!state.currentState.low) {
