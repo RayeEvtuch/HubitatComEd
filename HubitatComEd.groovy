@@ -3,6 +3,8 @@ metadata {
     definition (name: "ComEd", namespace: "scottevtuch", author: "Scott Evtuch", importUrl: "https://raw.githubusercontent.com/scottevtuch/HubitatComEd/master/HubitatComEd.groovy") {
         capability "Refresh"
 
+        command "updatePredictions"
+
         attribute "CurrentPrice","number"
         attribute "CurrentState","enum",['Low','Normal','High','Extreme']
         attribute "LowThreshold","enum",['Untriggered','Triggered']
@@ -21,7 +23,31 @@ preferences {
 def parse5min(response) {
     try{
         def data = response.data
-        def newPrice = data[0]['price'].toDouble()
+        size = data.size
+        log.info("Found ${size} 5min prices")
+
+        Double total = 0
+
+        for(Integer i=0;i<size&&i<12;i++) {
+            log.info("Adding ${data[i]['price']} to average")
+            total += data[i]['price'].toDouble()
+        }
+
+        log.info("Real average is ${ ( total / size ).round(1) }")
+
+        hourNumber = getFormatTime("H",1) as Integer
+        prediction = state.predictions[hourNumber][0]
+
+        log.info("Current hour prediction is ${prediction}")
+
+        if (size < 12) {
+            log.info("Adding prediction times ${12 - size}")
+            total += ( 12 - size ) * prediction
+        }
+
+        newPrice = ( total / 12 ).round(1)
+
+        log.info("Best estimate price is ${newPrice}")
 
         setPrice(newPrice)
     } catch (e) {
@@ -30,7 +56,7 @@ def parse5min(response) {
 }
 
 def setPrice(Number newPrice) {
-    def oldPrice = state.fiveMinPrice
+    oldPrice = state.fiveMinPrice
 
     try{
         if(oldPrice != newPrice) {
@@ -51,6 +77,7 @@ def setState() {
                 if (!state.currentState.extreme) {
                     state.currentState.extreme = true
                     sendEvent(name: "ExtremeThreshold", value: "Triggered", isStateChange: true)
+                    state.currentState.state = "Extreme"
                     sendEvent(name: "CurrentState", value: "Extreme", isStateChange: true)
                 }
             } else {
@@ -59,6 +86,7 @@ def setState() {
                     sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
                 }
                 if (state.currentState.state != "High") {
+                    state.currentState.state = "High"
                     sendEvent(name: "CurrentState", value: "High", isStateChange: true)
                 }
             }
@@ -74,23 +102,27 @@ def setState() {
             if (state.currentState.extreme) {
                 state.currentState.extreme = false
                 sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
+                state.currentState.state = "Normal"
                 sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
             }
             if (state.currentState.high) {
                 state.currentState.high = false
                 sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
+                state.currentState.state = "Normal"
                 sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
             }
             if (price < lowPrice) {
                 if (!state.currentState.low) {
                     state.currentState.low = true
                     sendEvent(name: "LowThreshold", value: "Triggered", isStateChange: true)
+                    state.currentState.state = "Low"
                     sendEvent(name: "CurrentState", value: "Low", isStateChange: true)
                 }
             } else {
                 if (state.currentState.low) {
                     state.currentState.low = false
                     sendEvent(name: "LowThreshold", value: "Untriggered", isStateChange: true)
+                    state.currentState.state = "Normal"
                     sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
                 }
             }
@@ -101,15 +133,42 @@ def setState() {
 }
 
 def refresh() {
+    begin = getFormatTime("yyyyMMddHH30",-1)
+    end = getFormatTime("yyyyMMddHH00",1)
     try{
-        httpResponse = httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed",timeout:50],{parse5min(it)})
+        httpResponse = httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${begin}&dateend=${end}",timeout:50],{parse5min(it)})
     } catch (e) {
         log.error("Failed to get 5min feed: ${e}")
     }
     setState()
 }
 
+def updatePredictions() {
+    date = getFormatTime("yyyyMMdd",1)
+
+    try{
+        httpResponse = httpGet([uri:"https://hourlypricing.comed.com/rrtp/ServletFeed?type=daynexttoday&date=${date}",timeout:50],{parsePrediction(it)})
+    } catch (e) {
+        log.error("Failed to get prediction feed: ${e}")
+    }
+}
+
+def parsePrediction(response) {
+    hourNumber = getFormatTime("H",1) as Integer
+
+    try{
+        def json = response.data[0].text().replaceAll(/Date.UTC\([\d,]+\), /,'')
+
+        def data = parseJson(json)
+
+        state.predictions = data
+    } catch (e) {
+        log.error("Failed to parse prediction: ${e}")
+    }
+}
+
 def setSchedule() {
+    schedule("0 1 0,23 ? * *", updatePredictions)
     schedule("0 */${refreshRate} * ? * *", refresh)
     log.info("ComEd will refresh every ${refreshRate} minutes")
 }
@@ -126,4 +185,12 @@ def updated() {
     state.fiveMinPrice = 0.0 as Number
     setSchedule()
     refresh()
+}
+
+def private getFormatTime(format, addHours=0) {
+    now = new Date()
+    tz = TimeZone.getTimeZone("America/Chicago")
+    Long hour = 3600*1000
+    future = new Date(now.getTime() + hour * addHours)
+    return future.format(format)
 }
