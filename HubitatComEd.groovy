@@ -7,9 +7,9 @@ metadata {
 
         attribute "CurrentPrice","number"
         attribute "CurrentState","enum",['Low','Normal','High','Extreme']
-        attribute "LowThreshold","enum",['Untriggered','Triggered']
-        attribute "HighThreshold","enum",['Untriggered','Triggered']
-        attribute "ExtremeThreshold","enum",['Untriggered','Triggered']
+        attribute "LowThreshold","enum",['Untriggered','Predicted','Triggered']
+        attribute "HighThreshold","enum",['Untriggered','Predicted','Triggered']
+        attribute "ExtremeThreshold","enum",['Untriggered','Predicted','Triggered']
     }
 }
 
@@ -70,58 +70,87 @@ def setPrice(Number newPrice) {
 }
 
 def setState() {
+    hourNumber = getFormatTime("H",2) as Integer
+    prediction = state.predictions[hourNumber][0]
+
+    log.info("Next hour prediction is ${prediction}")
+
     price = state.fiveMinPrice
     try{
         if(price >= highPrice) {
             if(price >= extremePrice) {
-                if (!state.currentState.extreme) {
-                    state.currentState.extreme = true
+                if (state.currentState.extreme <= 0) {
+                    // Trigger Extreme status
+                    state.currentState.extreme = 1
                     sendEvent(name: "ExtremeThreshold", value: "Triggered", isStateChange: true)
                     state.currentState.state = "Extreme"
                     sendEvent(name: "CurrentState", value: "Extreme", isStateChange: true)
                 }
             } else {
-                if (state.currentState.extreme) {
-                    state.currentState.extreme = false
+                if (state.currentState.extreme > 0) {
+                    // Untrigger Extreme status
+                    state.currentState.extreme = -1
                     sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
                 }
                 if (state.currentState.state != "High") {
+                    // Set High state
                     state.currentState.state = "High"
                     sendEvent(name: "CurrentState", value: "High", isStateChange: true)
                 }
             }
-            if (!state.currentState.high) {
-                state.currentState.high = true
+            if (state.currentState.high < 0) {
+                // Trigger High status
+                state.currentState.high = 1
                 sendEvent(name: "HighThreshold", value: "Triggered", isStateChange: true)
             }
-            if (state.currentState.low) {
-                state.currentState.low = false
+            if (state.currentState.low > 0) {
+                // Untrigger Low status
+                state.currentState.low = -1
                 sendEvent(name: "LowThreshold", value: "Untriggered", isStateChange: true)
             }
         } else {
-            if (state.currentState.extreme) {
-                state.currentState.extreme = false
+            if (state.currentState.extreme > 0) {
+                // Untrigger Extreme status
+                state.currentState.extreme = -1
                 sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
-                state.currentState.state = "Normal"
-                sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
+            } else if (prediction >= extremePrice && state.currentState.extreme < 0) {
+                // Predict Extreme prices
+                state.currentState.extreme = 0
+                sendEvent(name: "ExtremeThreshold", value: "Predicted", isStateChange: true)
+            } else if (prediction < extremePrice && state.currentState.extreme >= 0) {
+                // Unpredict Extreme prices
+                state.currentState.extreme = -1
+                sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
             }
-            if (state.currentState.high) {
-                state.currentState.high = false
+            if (state.currentState.high > 0) {
+                // Untrigger High status
+                state.currentState.high = -1
                 sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
-                state.currentState.state = "Normal"
-                sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
+            } else if (prediction >= highPrice && state.currentState.high < 0) {
+                // Predict High prices
+                state.currentState.high = 0
+                sendEvent(name: "HighThreshold", value: "Predicted", isStateChange: true)
+            } else if (prediction < highPrice && state.currentState.high >= 0) {
+                // Unpredict High prices
+                state.currentState.high = -1
+                sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
             }
             if (price < lowPrice) {
-                if (!state.currentState.low) {
-                    state.currentState.low = true
+                if (state.currentState.low < 0) {
+                    // Trigger Low status
+                    state.currentState.low = 1
                     sendEvent(name: "LowThreshold", value: "Triggered", isStateChange: true)
                     state.currentState.state = "Low"
                     sendEvent(name: "CurrentState", value: "Low", isStateChange: true)
                 }
             } else {
-                if (state.currentState.low) {
-                    state.currentState.low = false
+                if (state.currentState.low > 0) {
+                    // Untrigger Low status
+                    state.currentState.low = -1
                     sendEvent(name: "LowThreshold", value: "Untriggered", isStateChange: true)
+                }
+                if (state.currentState.state != "Normal") {
+                    // Resume Normal status
                     state.currentState.state = "Normal"
                     sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
                 }
@@ -178,7 +207,7 @@ def installed() {
 }
 
 def updated() {
-    state.currentState = [state: "Normal", low: false, high: false, extreme: false]
+    state.currentState = [state: "Normal", low: -1, high: -1, extreme: -1]
     sendEvent(name: "LowThreshold", value: "Untriggered", isStateChange: true)
     sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
     sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
