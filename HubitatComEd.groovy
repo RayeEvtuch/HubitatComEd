@@ -35,7 +35,7 @@ def parse5min(response) {
 
         log.info("Real average is ${ ( total / size ).round(1) }")
 
-        hourNumber = getFormatTime("H",1) as Integer
+        hourNumber = getFormatTime("H",60) as Integer
         prediction = state.predictions[hourNumber][0]
 
         log.info("Current hour prediction is ${prediction}")
@@ -70,7 +70,7 @@ def setPrice(Number newPrice) {
 }
 
 def setState() {
-    hourNumber = getFormatTime("H",2) as Integer
+    hourNumber = getFormatTime("H",150) as Integer
     prediction = state.predictions[hourNumber][0]
 
     log.info("Next hour prediction is ${prediction}")
@@ -98,7 +98,7 @@ def setState() {
                     sendEvent(name: "CurrentState", value: "High", isStateChange: true)
                 }
             }
-            if (state.currentState.high < 0) {
+            if (state.currentState.high <= 0) {
                 // Trigger High status
                 state.currentState.high = 1
                 sendEvent(name: "HighThreshold", value: "Triggered", isStateChange: true)
@@ -162,8 +162,8 @@ def setState() {
 }
 
 def refresh() {
-    begin = getFormatTime("yyyyMMddHH30",-1)
-    end = getFormatTime("yyyyMMddHH00",1)
+    begin = getFormatTime("yyyyMMddHH30",-60)
+    end = getFormatTime("yyyyMMddHH00",60)
     try{
         httpResponse = httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${begin}&dateend=${end}",timeout:50],{parse5min(it)})
     } catch (e) {
@@ -173,7 +173,7 @@ def refresh() {
 }
 
 def updatePredictions() {
-    date = getFormatTime("yyyyMMdd",1)
+    date = getFormatTime("yyyyMMdd",60)
 
     try{
         httpResponse = httpGet([uri:"https://hourlypricing.comed.com/rrtp/ServletFeed?type=daynexttoday&date=${date}",timeout:50],{parsePrediction(it)})
@@ -183,7 +183,7 @@ def updatePredictions() {
 }
 
 def parsePrediction(response) {
-    hourNumber = getFormatTime("H",1) as Integer
+    hourNumber = getFormatTime("H",60) as Integer
 
     try{
         def json = response.data[0].text().replaceAll(/Date.UTC\([\d,]+\), /,'')
@@ -216,10 +216,10 @@ def updated() {
     refresh()
 }
 
-def private getFormatTime(format, addHours=0) {
+def private getFormatTime(format, addMinutes=0) {
     now = new Date()
     tz = TimeZone.getTimeZone("America/Chicago")
-    Long hour = 3600*1000
-    future = new Date(now.getTime() + hour * addHours)
+    Long minute = 60*1000
+    future = new Date(now.getTime() + minute * addMinutes)
     return future.format(format)
 }
