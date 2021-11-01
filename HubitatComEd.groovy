@@ -18,6 +18,9 @@ preferences {
     input name: "lowPrice", type: "decimal", title: "Low Price", description: "A price below this value will trigger the 'Low' state", defaultValue: 4
     input name: "highPrice", type: "decimal", title: "High Price", description: "A price above this value will trigger the 'High' state", defaultValue: 8
     input name: "extremePrice", type: "decimal", title: "Extreme Price", description: "A price above this value will trigger the 'Extreme' state", defaultValue: 16
+    input name: "predictionMinutes", type: "number", title: "Prediction Minutes", description: "How many minutes in advance to trigger 'Predicted' state", defaultValue: 90
+    input name: "hysteresisCents", type: "decimal", title: "Hysteresis Cents", description: "How many extra cents a price must recover to untrigger states", defaultValue: 0.5
+    input name: "lagMinutes", type: "number", title: "Lag Minutes", description: "Use this many minutes of the previous hour to pad current-hour prices", defaultValue: 30
 }
 
 def parse5min(response) {
@@ -25,23 +28,23 @@ def parse5min(response) {
         def data = response.data
         size = data.size
 
+        state.currentPrices = []
+
         Double total = 0
 
         for(Integer i=0;i<size&&i<12;i++) {
             total += data[i]['price'].toDouble()
+            state.currentPrices += data[i]['price'].toDouble()
         }
-
 
         hourNumber = getFormatTime("H",60) as Integer
         prediction = state.predictions[hourNumber][0]
-
 
         if (size < 12) {
             total += ( 12 - size ) * prediction
         }
 
         newPrice = ( total / 12 ).round(1)
-
 
         setPrice(newPrice)
     } catch (e) {
@@ -63,9 +66,8 @@ def setPrice(Number newPrice) {
 }
 
 def setState() {
-    hourNumber = getFormatTime("H",150) as Integer
+    hourNumber = getFormatTime("H",( predictionMinutes + 60 )) as Integer
     prediction = state.predictions[hourNumber][0]
-
 
     price = state.fiveMinPrice
     try{
@@ -79,7 +81,7 @@ def setState() {
                     sendEvent(name: "CurrentState", value: "Extreme", isStateChange: true)
                 }
             } else {
-                if (state.currentState.extreme > 0 && price < (extremePrice - 0.5) ) {
+                if (state.currentState.extreme > 0 && price < (extremePrice - hysteresisCents) ) {
                     // Untrigger Extreme status
                     state.currentState.extreme = -1
                     sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
@@ -95,7 +97,7 @@ def setState() {
                 state.currentState.high = 1
                 sendEvent(name: "HighThreshold", value: "Triggered", isStateChange: true)
             }
-            if (state.currentState.low > 0 && price > (lowPrice + 0.5)) {
+            if (state.currentState.low > 0 && price > (lowPrice + hysteresisCents)) {
                 // Untrigger Low status
                 state.currentState.low = -1
                 sendEvent(name: "LowThreshold", value: "Untriggered", isStateChange: true)
@@ -109,12 +111,12 @@ def setState() {
                 // Predict Extreme prices
                 state.currentState.extreme = 0
                 sendEvent(name: "ExtremeThreshold", value: "Predicted", isStateChange: true)
-            } else if (prediction < (extremePrice - 0.5) && state.currentState.extreme == 0) {
+            } else if (prediction < (extremePrice - hysteresisCents) && state.currentState.extreme == 0) {
                 // Unpredict Extreme prices
                 state.currentState.extreme = -1
                 sendEvent(name: "ExtremeThreshold", value: "Untriggered", isStateChange: true)
             }
-            if (state.currentState.high > 0 && price < (highPrice - 0.5)) {
+            if (state.currentState.high > 0 && price < (highPrice - hysteresisCents)) {
                 // Untrigger High status
                 state.currentState.high = -1
                 sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
@@ -122,7 +124,7 @@ def setState() {
                 // Predict High prices
                 state.currentState.high = 0
                 sendEvent(name: "HighThreshold", value: "Predicted", isStateChange: true)
-            } else if (prediction < (highPrice - 0.5) && state.currentState.high == 0) {
+            } else if (prediction < (highPrice - hysteresisCents) && state.currentState.high == 0) {
                 // Unpredict High prices
                 state.currentState.high = -1
                 sendEvent(name: "HighThreshold", value: "Untriggered", isStateChange: true)
@@ -135,13 +137,13 @@ def setState() {
                     state.currentState.state = "Low"
                     sendEvent(name: "CurrentState", value: "Low", isStateChange: true)
                 }
-            } else if (price > (lowPrice + 0.5)) {
+            } else if (price > (lowPrice + hysteresisCents)) {
                 if (state.currentState.low > 0) {
                     // Untrigger Low status
                     state.currentState.low = -1
                     sendEvent(name: "LowThreshold", value: "Untriggered", isStateChange: true)
                 }
-                if (state.currentState.state != "Normal" && price < (highPrice - 0.5)) {
+                if (state.currentState.state != "Normal" && price < (highPrice - hysteresisCents)) {
                     // Resume Normal status
                     state.currentState.state = "Normal"
                     sendEvent(name: "CurrentState", value: "Normal", isStateChange: true)
@@ -154,7 +156,7 @@ def setState() {
 }
 
 def refresh() {
-    begin = getFormatTime("yyyyMMddHH30",-60)
+    begin = getFormatTime("yyyyMMddHH${String.format("%02d",( 60 - lagMinutes ))}",-60)
     end = getFormatTime("yyyyMMddHH00",60)
     try{
         httpResponse = httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${begin}&dateend=${end}",timeout:50],{parse5min(it)})
