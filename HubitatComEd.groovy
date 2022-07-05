@@ -174,8 +174,8 @@ def refresh() {
     current_begin = getFormatTime("yyyyMMddHH01",0)
     end = getFormatTime("yyyyMMddHH01",60)
     try{
-        httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${prev_begin}&dateend=${current_begin}",timeout:50],{prev = it})
-        httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${current_begin}&dateend=${end}",timeout:50],{current = it})
+        httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${prev_begin}&dateend=${current_begin}",timeout:50,ignoreSSLIssues:true],{prev = it})
+        httpGet([uri:"https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${current_begin}&dateend=${end}",timeout:50,ignoreSSLIssues:true],{current = it})
         parse5min(prev, current)
     } catch (e) {
         log.error("Failed to get 5min feed: ${e}")
@@ -187,7 +187,7 @@ def updatePredictions() {
     date = getFormatTime("yyyyMMdd",60)
 
     try{
-        httpResponse = httpGet([uri:"https://hourlypricing.comed.com/rrtp/ServletFeed?type=daynexttoday&date=${date}",timeout:50],{parsePrediction(it)})
+        httpResponse = httpGet([uri:"https://hourlypricing.comed.com/rrtp/ServletFeed?type=daynexttoday&date=${date}",timeout:50,ignoreSSLIssues:true],{parsePrediction(it)})
     } catch (e) {
         log.error("Failed to get prediction feed: ${e}")
     }
