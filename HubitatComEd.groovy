@@ -40,7 +40,7 @@ def parse5min(prev, current) {
 
         state.currentPrices = []
 
-        sendEvent(name: "SpotPrice", value: prices[-1].price, isStateChange: true)
+        sendEvent(name: "SpotPrice", value: prices[0].price, isStateChange: true)
 
         Double total = 0
 
